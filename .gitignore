@@ -1,0 +1,11 @@
+*.WAV
+
+*.mp4
+
+__pycache__/
+
+*.pyc
+
+config.py
+
+upload_voice.py 
