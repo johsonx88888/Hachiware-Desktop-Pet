@@ -1,0 +1,8 @@
+opencv-python
+Pillow
+sounddevice
+numpy
+scipy
+pygame
+openai
+requests
