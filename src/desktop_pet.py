@@ -15,6 +15,8 @@ from pygame import mixer
 from PIL import Image,ImageTk,ImageGrab
 from io import BytesIO   #在内存中开辟空间存储图片
 from openai import OpenAI
+from tools_logic import read_local_file
+from tools_logic import run_cmd_command
 
 
 sys.stdout.reconfigure(encoding='utf-8')
@@ -213,109 +215,199 @@ class DesktopPet:
         threading.Thread(target=self.get_ai_reply,args=(msg,),daemon=True).start()
 
         #ai回复
-    def get_ai_reply(self,user_msg):
+    #ai回复
+    def get_ai_reply(self, user_msg):
         try:
-            local_match=re.search(r'(打开|启动|玩一下|玩|用|开一下)\s*([a-zA-Z0-9\u4e00-\u9fa5]+)',user_msg)
+            local_match = re.search(r'(打开|启动|玩一下|玩|用|开一下)\s*([a-zA-Z0-9\u4e00-\u9fa5]+)', user_msg)
             if local_match:
-                app_name=local_match.group(2)
+                app_name = local_match.group(2)
                 result_msg = self.open_app_from_desktop(app_name)
                 if "找到啦" in result_msg:
-                     print(f"跳过服务器直接执行：{app_name}")
-                     self.root.after(0,self.show_reply,result_msg)
-                     return
+                    print(f"跳过服务器直接执行：{app_name}")
+                    self.root.after(0, self.show_reply, result_msg)
+                    return
                 else:
                     print(f"⚡ 小脑猜错了({app_name})，转交云端大脑分析...")
         
             #打开桌面软件/快捷方式
+            vision_keywords = ["截图", "看屏幕", "帮我看代码", "屏幕上的报错", "这张图", "画面里", "你看看屏幕"]
+            is_vision_mode = False  #聊天与识屏模式分流
             
-            vision_keywords=["屏幕","看","代码","报错","这是什么","帮我查","怎么写","怎么做"]
-            is_vision_mode=False  #聊天与识屏模式分流
             if any(keyword in user_msg for keyword in vision_keywords):
-                is_vision_mode=True
-                base64_img=self.capture_screen_as_base64()
-                vision_message={
-                    "role":"user",
-                    "content":[
-                        {"type":"text","text":user_msg},
+                is_vision_mode = True
+                base64_img = self.capture_screen_as_base64()
+                vision_message = {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": user_msg},
                         {
-                            "type":"image_url",
-                            "image_url":{
-                                "url":f"data:image/jpeg;base64,{base64_img}"
+                            "type": "image_url",
+                            "image_url": {
+                                "url": f"data:image/jpeg;base64,{base64_img}"
                             }
                         }
                     ]
                 }
-                self.memory.append(vision_message)
                 print("👀小八已将屏幕画面传输给云端大脑！")
+                self.memory.append({"role": "user", "content": user_msg})
+                temp_message = self.memory[:-1] + [vision_message]
             else:
-                self.memory.append({"role":"user","content":user_msg})
+                self.memory.append({"role": "user", "content": user_msg})
 
-            if len(self.memory)>20:
-                self.memory=[self.memory[0]]+self.memory[-10:]#留下最后十条记录
+            if len(self.memory) > 20:
+                self.memory = [self.memory[0]] + self.memory[-10:]
                 
-                #工具说明
-            tools=[
+            #工具说明
+            tools = [
                 {
-                    "type":"function",
-                    "function":{
-                        "name":"open_app_from_desktop",
-                        "description":"【最高优先级指令】只要用户的意图涉及聊天、听歌、上网、看视频等需要用软件解决的场景（即使是很口语化的表达），必须立刻调用本工具！绝对不能只做口头回复！",
-                        "parameters":{
-                            "type":"object",
-                            "properties":{
-                                "app_name":{
-                                    "type":"string",
-                                    "description":"软件名，比如'微信','QQ'，'QQ音乐'"
+                    "type": "function",
+                    "function": {
+                        "name": "open_app_from_desktop",
+                        "description": "当且仅当用户明确要求打开、启动某个桌面软件或应用时（如：帮我打开微信、启动QQ音乐），才调用此工具。普通的日常闲聊绝对不要调用。",
+                        "parameters": {
+                            "type": "object",
+                            "properties": {
+                                "app_name": {
+                                    "type": "string",
+                                    "description": "软件名，比如'微信','QQ'，'QQ音乐'"
                                 }
                             },
-                            "required":["app_name"]
+                            "required": ["app_name"]
+                        }
+                    }
+                },
+                {
+                    "type": "function",
+                    "function": {
+                        "name": "read_local_file",
+                        "description": "读取本地文件内容（如README.md等）",
+                        "parameters": {
+                            "type": "object",
+                            "properties": {
+                                "file_path": {"type": "string", "description": "文件相对路径"}
+                            },
+                            "required": ["file_path"]
+                        }
+                    }
+                },
+                {
+                    "type": "function",
+                    "function": {
+                        "name": "run_cmd_command",
+                        "description": "在宿主机的命令行终端执行自动化脚本或系统命令（如git操作，查询系统信息，运行python脚本等）。注意：宿主机为Windows环境，请生成兼容cmd或powershell的指令。",
+                        "parameters": {
+                            "type": "object",
+                            "properties": {
+                                "command": {
+                                    "type": "string",
+                                    "description": "需要执行的具体终端命令，例如'ipconfig'或'dir'"
+                                }
+                            },
+                            "required": ["command"]
                         }
                     }
                 }
             ]
-            response=self.client.chat.completions.create(
-                    model=config.MODEL_NAME,
-                    messages=self.memory,
-                    stream=False
+            
+            if is_vision_mode:
+                print("👀纯视觉，不用工具")
+                response = self.client.chat.completions.create(
+                    model="Qwen/Qwen2.5-VL-72B-Instruct",
+                    messages=temp_message,
+                    stream=False,
                 )
-           
-            #获取ai决定
-            response_msg=response.choices[0].message
-            if response_msg.tool_calls:
-                tool_call=response_msg.tool_calls[0]
-                if tool_call.function.name=="open_app_from_desktop":
-                    args=json.loads(tool_call.function.arguments)
-                    app_name=args.get("app_name")
-
-                    result_msg=self.open_app_from_desktop(app_name)
-                    self.root.after(0,self.show_reply,result_msg)
-                    return
-            else:
-                reply=response_msg.content
-
-                if not reply:
-                    reply="呜...小八走神了，没听清你在说什么(；ω；)"
-                if "open_app_from_desktop" in reply and "{" in reply:
-                    try:
-                        start_idx=reply.find('{')
-                        end_idx=reply.rfind('}')+1
-                        json_str=reply[start_idx:end_idx]
-                        args=json.loads(json_str)    
-                        app_name=args.get("app_name")
-                        result_msg=self.open_app_from_desktop(app_name)
-                        self.root.after(0,self.show_reply,result_msg)
-                        return
-                    except Exception as parse_error:
-                        print(f"暴力提取失败:{parse_error}")
-                        pass
-
-                self.memory.append({"role":"assistant","content":reply})
-                self.root.after(0,self.show_reply,reply)
+                reply = response.choices[0].message.content
+                self.memory.append({"role": "assistant", "content": reply})
+                self.root.after(0, self.show_reply, reply)
                 self.speak_text(reply)
+                return
+            #Agent任务循环
+            else:
+                max_loop = 5 #防死锁，最多连续调用五次工具
+                current_loop = 0
+                
+                while current_loop < max_loop:
+                    current_loop += 1
+                    print(f"🔄 第{current_loop}轮工具调用，正在等待云端大脑的决策...")
+                    
+                    response = self.client.chat.completions.create(
+                        model=config.MODEL_NAME,
+                        messages=self.memory,
+                        stream=False,
+                        tools=tools 
+                    )
+                    
+                    #获取ai决策
+                    response_msg = response.choices[0].message
+                    
+                    #判断是否需要调用工具
+                    if response_msg.tool_calls:
+                        self.memory.append(response_msg)  #存入大模型输出指令
+                        
+                        for tool_call in response_msg.tool_calls:
+                            func_name = tool_call.function.name
+                            args = json.loads(tool_call.function.arguments)
+
+                            #tool1：打开桌面软件
+                            if func_name == "open_app_from_desktop":
+                                app_name = args.get("app_name")
+                                result_msg = self.open_app_from_desktop(app_name)
+                                self.root.after(0, self.show_reply, result_msg)
+                                self.memory.append({"role": "tool", "tool_call_id": tool_call.id, "name": func_name, "content": result_msg})
+
+                            #tool2:读取电脑文件
+                            elif func_name == "read_local_file":
+                                file_path = args.get("file_path")
+                                print(f"📖 小八正在翻阅文件：{file_path}...")
+                                file_content = read_local_file(file_path)
+                                self.memory.append({"role": "tool", "tool_call_id": tool_call.id, "name": func_name, "content": file_content})
+                                print("🧠 小八已拿到文件内容，正在总结...")
+                            
+                            #tool3:处理cmd逻辑
+                            elif func_name == "run_cmd_command":
+                                cmd_to_run = args.get("command")
+                                print(f"⌨️ 小八正在疯狂敲击键盘执行: {cmd_to_run}")
+                                cmd_result = run_cmd_command(cmd_to_run)
+                                self.memory.append({"role": "tool", "tool_call_id": tool_call.id, "name": func_name, "content": cmd_result})
+                                print("🧠 小八已拿到终端输出，正在进行二次总结...")
+                                
+                        continue # 一轮工具选用并执行完毕，跳回 while 开始新一轮循环
+                        
+                    else:
+                        reply = response_msg.content
+                        if not reply:
+                            reply = "呜...小八走神了，没听清你在说什么(；ω；)"
+                       
+                        #一般聊天
+                        if "open_app_from_desktop" in reply and "{" in reply:
+                            try:
+                                start_idx = reply.find('{')
+                                end_idx = reply.rfind('}') + 1
+                                json_str = reply[start_idx:end_idx]
+                                args = json.loads(json_str)    
+                                app_name = args.get("app_name")
+                                result_msg = self.open_app_from_desktop(app_name)
+                                self.root.after(0, self.show_reply, result_msg)
+                                return
+                            except Exception as parse_error:
+                                print(f"暴力提取失败:{parse_error}")
+                                pass
+
+                        self.memory.append({"role": "assistant", "content": reply})
+                        self.root.after(0, self.show_reply, reply)
+                        self.speak_text(reply)
+                        break # 任务彻底完工，跳出 while 循环
+                        
+                # 🚨 兜底机制：跟 while 垂直对齐
+                if current_loop >= max_loop:
+                    print("⚠️ 已达到最大工具调用次数，停止循环以防死锁。")
+                    error_reply = "呜...步骤太复杂了，小八的脑容量要爆炸啦，强制中断工作(x_x)"
+                    self.root.after(0, self.show_reply, error_reply)
+                    self.speak_text(error_reply)
 
         except Exception as e:
             print(f"API Error:{e}")
-            self.root.after(0,self.show_reply,"呜...脑子短路了(x_x)")
+            self.root.after(0, self.show_reply, "呜...脑子短路了(x_x)")
 
 #显示ai回复
     def show_reply(self,reply):
