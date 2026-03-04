@@ -5,16 +5,19 @@
 ---
 ## 项目亮点（Highlights）
 * **视觉锁定（Vision Tracking）**：利用 **OpenCV** 实现实时人脸/目标检测，让小八的眼神始终跟随你的坐标。
-* **双核对话（Dual-Core Interaction）**:接入**LLM（大语言模型）**逻辑，支持自然语言处理，告别死板的关键词回复。
-* **语音引擎（Voice systhesis）**集成**FunAudioLLM / CosyVoice**技术，赋予小八标志性的“赛博嗓音”。
-* **轻量化设计**：核心逻辑基于Python编写，采用双缓冲技术优化canvas绘图，完美兼容 Windows 桌面环境。
+* **Agent 智能体架构（ReAct Loop）**：重构了底层的 LLM 路由逻辑，引入基于 ReAct 范式的自主状态循环。小八不仅能进行多轮对话，还能根据任务复杂度自主决定工具的调用链路。
+* **系统级本地交互（System-level Interaction）**：深度集成 Function Calling，赋予小八操作宿主机系统的能力。目前已支持后台静默执行终端命令（CMD/PowerShell）、读取本地文件（如日志分析），并能自动捕获终端报错进行自我纠正。
+* **语音引擎（Voice Synthesis）**：集成 **FunAudioLLM / CosyVoice** 技术，赋予小八标志性的个性化嗓音。
+* **轻量化设计（Lightweight Design）**：核心逻辑基于 Python 编写，采用双缓冲技术优化 Tkinter 画布绘图，完美兼容 Windows 桌面环境，资源占用极低。
+
 ---
 
 ## 技术栈（Tech Stack）
-* **Language**: Python 3.12.4
+* **Language**: Python 3.12
 * **Vision**: OpenCV (opencv-python)
-* **GUI**: Tkinter/PySide (Desktop Widget logic)
-* **Intelligence**: Large Language Model API (FunAudioLLM/CosyVoice)
+* **GUI**: Tkinter (Desktop Widget logic)
+* **Intelligence**: DeepSeek API (Agent Reasoning) / Qwen-VL (Vision Logic)
+* **Voice**: FunAudioLLM / CosyVoice (TTS)
 
 ---
 
