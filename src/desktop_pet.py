@@ -15,9 +15,7 @@ from pygame import mixer
 from PIL import Image,ImageTk,ImageGrab
 from io import BytesIO   #在内存中开辟空间存储图片
 from openai import OpenAI
-from tools_logic import read_local_file
-from tools_logic import run_cmd_command
-
+from tools_logic import read_local_file, run_cmd_command, write_local_file, run_python_script
 
 sys.stdout.reconfigure(encoding='utf-8')
 
@@ -259,6 +257,7 @@ class DesktopPet:
                 
             #工具说明
             tools = [
+                #工具1：启动软件
                 {
                     "type": "function",
                     "function": {
@@ -276,6 +275,7 @@ class DesktopPet:
                         }
                     }
                 },
+                #工具2：读取本地文件
                 {
                     "type": "function",
                     "function": {
@@ -290,6 +290,7 @@ class DesktopPet:
                         }
                     }
                 },
+                #工具3：使用cmd命令
                 {
                     "type": "function",
                     "function": {
@@ -304,6 +305,37 @@ class DesktopPet:
                                 }
                             },
                             "required": ["command"]
+                        }
+                    }
+                },
+                #工具4：读写与修改文件到本地
+                {
+                    "type":"function",
+                    "function":{
+                        "name":"write_local_file",
+                        "description":"当主人要求你写代码，修改文件，创建脚本时调用。你会将生成的代码写入本地文件",
+                        "parameters":{
+                            "type":"object",
+                            "properties":{
+                                "file_path":{"type":"string","description":"要保存的文件相对路径，比如'test.py'"},
+                                "content":{"type":"string","description":"要写入的完整代码或文本内容"}
+                             }, 
+                        "required":["file_path","content"]
+                        }
+                    }
+                },
+                #工具5：运行或测试脚本：
+                {
+                    "type":"function",
+                    "function":{
+                        "name":"run_python_script",
+                        "description":"当主人要求你运行，执行，测试某个Python脚本时调用。它会返回终端的输出结果或报错信息。",
+                        "parameters":{
+                            "type":"object",
+                            "properties":{
+                                "file_path":{"type":"string","description":"要运行的脚本相对路径，比如'test.py'"}
+                            },
+                            "required":["file_path"]
                         }
                     }
                 }
@@ -370,10 +402,28 @@ class DesktopPet:
                                 cmd_result = run_cmd_command(cmd_to_run)
                                 self.memory.append({"role": "tool", "tool_call_id": tool_call.id, "name": func_name, "content": cmd_result})
                                 print("🧠 小八已拿到终端输出，正在进行二次总结...")
-                                
+
+                            #tool4:写文件
+                            elif func_name=="write_local_file":
+                                file_path=args.get("file_path")
+                                content=args.get("content")
+                                print(f"✍️ 小八正在奋笔疾书，写代码到：{file_path}...")
+                                write_result=write_local_file(file_path,content)
+                                self.memory.append({"role":"tool","tool_call_id":tool_call.id,"name":func_name,"content":write_result})
+                                print(f"🧠 小八写入完毕：{write_result}")
+
+                            #tool5:跑脚本检查
+                            elif func_name=="run_python_script":
+                                file_path=args.get("file_path")
+                                print("🚀 小八正在启动脚本验证：{file_path}")
+                                run_result=run_python_script(file_path)
+                                self.memory.append({"role":"tool","tool_call_id":tool_call.id,"name":func_name,"content":run_result})
+                                print("🧠 小八拿到运行结果，准备汇报...")
+
                         continue # 一轮工具选用并执行完毕，跳回 while 开始新一轮循环
                         
                     else:
+                        #若出错
                         reply = response_msg.content
                         if not reply:
                             reply = "呜...小八走神了，没听清你在说什么(；ω；)"
