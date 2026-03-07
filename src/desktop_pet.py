@@ -295,7 +295,7 @@ class DesktopPet:
                     "type": "function",
                     "function": {
                         "name": "run_cmd_command",
-                        "description": "在宿主机的命令行终端执行自动化脚本或系统命令（如git操作，查询系统信息，运行python脚本等）。注意：宿主机为Windows环境，请生成兼容cmd或powershell的指令。",
+                        "description": "在宿主机的命令行终端执行自动化脚本或系统命令（如git操作，查询系统信息等）。🚨注意：宿主机为Windows环境，请生成兼容cmd或powershell的指令。🚨核心准则：如果主人要求你删除、修改、读取某个名称模糊的文件/文件夹，或者让你找东西，你绝对不能盲目猜测全名！你必须分两步走：第一步，先调用此工具执行 'dir' 命令查看当前目录的真实文件列表；第二步，根据终端返回的列表精准找到真实的全名后，再次调用此工具执行最终的操作命令！",
                         "parameters": {
                             "type": "object",
                             "properties": {
@@ -329,7 +329,7 @@ class DesktopPet:
                     "type":"function",
                     "function":{
                         "name":"run_python_script",
-                        "description":"当主人要求你运行，执行，测试某个Python脚本时调用。它会返回终端的输出结果或报错信息。",
+                        "description":"当主人要求你运行、执行、测试某个Python脚本时调用。它会返回终端的输出结果或报错信息。🚨【核心自愈准则】：如果你收到 'ModuleNotFoundError' 或 'No module named...' 的报错，绝对不要放弃！这说明缺少第三方库。此时你必须立刻调用 'run_cmd_command' 工具，使用 'pip install 库名' 命令将缺失的库安装到宿主机！安装成功后，你必须再次调用本工具重新运行脚本，直到完美成功为止！",
                         "parameters":{
                             "type":"object",
                             "properties":{
