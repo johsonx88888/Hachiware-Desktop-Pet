@@ -11,3 +11,19 @@ config.py
 upload_voice.py 
 
 .venv/
+
+memory.json
+
+assets_audio/
+
+recordings/
+
+assets_video/
+
+dist/
+
+build/
+
+*.spec
+
+api_config.json

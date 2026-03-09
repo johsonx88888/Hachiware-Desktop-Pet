@@ -37,7 +37,7 @@ class DesktopPet:
             api_key=config.API_KEY,
             base_url=config.BASE_URL
         )
-        self.memory=[{"role":"system","content":config.PERSONA}]
+        self.memory=self.load_memory()
         
         #窗口页面设置
         self.root.overrideredirect(True)#去边框
@@ -350,12 +350,13 @@ class DesktopPet:
                 )
                 reply = response.choices[0].message.content
                 self.memory.append({"role": "assistant", "content": reply})
+                self.save_memory()
                 self.root.after(0, self.show_reply, reply)
                 self.speak_text(reply)
                 return
             #Agent任务循环
             else:
-                max_loop = 5 #防死锁，最多连续调用五次工具
+                max_loop = 8 #防死锁，最多连续调用五次工具
                 current_loop = 0
                 
                 while current_loop < max_loop:
@@ -374,7 +375,8 @@ class DesktopPet:
                     
                     #判断是否需要调用工具
                     if response_msg.tool_calls:
-                        self.memory.append(response_msg)  #存入大模型输出指令
+                        assistant_msg_dict=response_msg.model_dump(exclude_none=True)
+                        self.memory.append(assistant_msg_dict)
                         
                         for tool_call in response_msg.tool_calls:
                             func_name = tool_call.function.name
@@ -415,7 +417,7 @@ class DesktopPet:
                             #tool5:跑脚本检查
                             elif func_name=="run_python_script":
                                 file_path=args.get("file_path")
-                                print("🚀 小八正在启动脚本验证：{file_path}")
+                                print(f"🚀 小八正在启动脚本验证：{file_path}")
                                 run_result=run_python_script(file_path)
                                 self.memory.append({"role":"tool","tool_call_id":tool_call.id,"name":func_name,"content":run_result})
                                 print("🧠 小八拿到运行结果，准备汇报...")
@@ -444,6 +446,7 @@ class DesktopPet:
                                 pass
 
                         self.memory.append({"role": "assistant", "content": reply})
+                        self.save_memory()
                         self.root.after(0, self.show_reply, reply)
                         self.speak_text(reply)
                         break # 任务彻底完工，跳出 while 循环
@@ -530,6 +533,39 @@ class DesktopPet:
             pass
         return frames
     
+        #长期记忆模块
+        #读取记忆
+    def load_memory(self):
+        """
+        开机启动，读取昨天记忆
+        """
+        memory_path="memory.json"#记忆文件路径
+        try:
+            if os.path.exists(memory_path):
+                with open(memory_path,'r',encoding='utf-8') as f:#读取记忆文件
+                    saved_memory=json.load(f)#读取记忆
+                if len(saved_memory)>0 and saved_memory[0].get("role")=="system":
+                    saved_memory[0]["content"]=config.PERSONA
+                    print("🧠 海马体接入成功！小八想起了之前的事情！")
+                    return saved_memory
+        except Exception as e:
+            print(f"⚠️ 记忆读取失败，小八失忆了: {e}")
+            #倘若没有历史记忆:
+        print("🌱 这是一个全新的小八，记忆库初始化完成。")
+        return [{"role":"system","content":config.PERSONA}]
+    #更新记忆
+    def save_memory(self):
+        """运行ing，将最新记忆刻入本地大脑"""
+        memory_path="memory.json"
+        try:
+            if len(self.memory)>21:
+                self.memory=[self.memory[0]]+self.memory[-20:]
+
+            with open(memory_path,'w',encoding='utf-8') as f:
+                json.dump(self.memory,f,ensure_ascii=False,indent=2)
+        except Exception as e:
+            print(f"⚠️ 记忆刻录失败: {e}")
+    
     #截屏与转码
     def capture_screen_as_base64(self):
         """截屏并在内存中转化为Base64字符串"""
@@ -554,7 +590,7 @@ class DesktopPet:
         #状态机
         last_state=None
         miss_count=0
-        max_miss=5
+        max_miss=15
         
         while self.vision_running and cap.isOpened():
             ret,frame=cap.read()
