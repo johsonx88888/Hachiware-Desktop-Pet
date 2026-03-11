@@ -1,0 +1,20 @@
+[project]
+name = "hachiware-desktop-pet"
+version = "1.1.0"
+description = "一个集成了多模态视觉、语音交互与 Agent 自动化脚本执行的桌面小八桌宠"
+readme = "README.md"
+requires-python = ">=3.12"
+authors=[
+    {name="Johsonx",email="3123447130@qq.com"}
+]
+keywords=["AI","Agent","DesktopPet","deepseek","OpenCV"]
+dependencies = [
+    "numpy>=2.4.3",
+    "openai>=2.26.0",
+    "opencv-python>=4.13.0.92",
+    "pillow>=12.1.1",
+    "pygame>=2.6.1",
+    "requests>=2.32.5",
+    "scipy>=1.17.1",
+    "sounddevice>=0.5.5",
+]
