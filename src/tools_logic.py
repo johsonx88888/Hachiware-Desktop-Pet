@@ -34,6 +34,8 @@ def run_cmd_command(command):
             shell=True,
             capture_output=True,
             text=True,
+            encoding='utf-8',
+            errors='replace',
             timeout=15
         )
         if result.returncode==0:
@@ -63,27 +65,42 @@ def write_local_file(file_path,content):
     except Exception as e:
         return f"❌ 写文件失败: {str(e)}"
     
+#运行脚本
 def run_python_script(file_path):
     """
-    运行指定python脚本并返回终端输出：
+    运行指定python脚本并返回终端输出：（与exe和开发环境自适应）
     """
     try:
         base_dir=os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         full_path=os.path.join(base_dir,file_path)
         if not os.path.exists(full_path):
             return f"❌运行失败，找不到文件{file_path}"
-        
+        #判断运行环境
+        if getattr(sys,'frozen',False):
+            #sys.executable是exe本身，改用系统python
+            interpreter="python"
+        else:
+            #开发环境，直接用当前venv带的解释器
+            interpreter=sys.executable
+
         #执行命令获取标准输出
         result=subprocess.run(
-            [sys.executable,full_path],
+            [interpreter,full_path],
             capture_output=True,
             text=True,
-            timeout=15
+            encoding='utf-8',
+            errors='replace',
+            timeout=15,
+            shell=True
         )
-        if result.returncode==0:
+
+        if result.returncode==0: 
           output = result.stdout.strip()
           return f"🚀 运行成功！输出如下：\n{output[:1000]}" if output else "🚀 运行成功，但脚本没有任何终端打印输出（可能缺少 print 语句）。"
         else:
             return f"⚠️ 运行报错啦！错误信息: \n{result.stderr.strip()[:1000]}"
     except subprocess.TimeoutExpired:
         return "⏱️ 脚本运行超时，已强制停止。"
+    except Exception as e:              # 🚨 加上通用异常兜底，防止未知错误导致整个工具链卡死
+        return f"❌ 系统级异常: {str(e)}"
+    
