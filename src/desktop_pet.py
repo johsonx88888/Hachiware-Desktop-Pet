@@ -7,6 +7,11 @@ import re
 import shutil
 import cv2
 import sys
+try:
+    from ctypes import windll
+    windll.shcore.SetProcessDpiAwareness(1)
+except Exception:
+    pass
 import base64  #将图片矩阵转换成字符串
 import sounddevice as sd
 import numpy as np
@@ -16,8 +21,10 @@ from PIL import Image,ImageTk,ImageGrab
 from io import BytesIO   #在内存中开辟空间存储图片
 from openai import OpenAI
 from tools_logic import read_local_file, run_cmd_command, write_local_file, run_python_script
+from wechat_skill import auto_collect_money, navigate_to_transfer_chat
 
-sys.stdout.reconfigure(encoding='utf-8')
+if sys.stdout is not None:
+   sys.stdout.reconfigure(encoding='utf-8')
 
 class DesktopPet:
     def __init__(self,root):
@@ -52,7 +59,7 @@ class DesktopPet:
         self.sleep_frames=self.load_gif("gif/挥手1.gif")
         try:   #对话框背景（塔菲）
             raw_chat_bg=Image.open("gif/背景.jpg")
-            resize_bg=raw_chat_bg.resize((500,600),Image.Resampling.LANCZOS)
+            resize_bg=raw_chat_bg.resize((600,720),Image.Resampling.LANCZOS)
             self.chat_bg_photo=ImageTk.PhotoImage(resize_bg)
             print("taffy驾到，统统闪开喵！")
         except Exception as e:
@@ -161,7 +168,7 @@ class DesktopPet:
         #窗口基础设置
         self.chat_window=tk.Toplevel(self.root)
         self.chat_window.title("和吉伊卡哇聊天ing...")
-        self.chat_window.geometry("500x600")
+        self.chat_window.geometry("600x720")
         #self.chat_window.attributes('-alpha',0.7) //透明设置
 
         #taffy背景放置底层
@@ -170,15 +177,10 @@ class DesktopPet:
             bg_label.place(relwidth=1,relheight=1)
  
         input_frame = tk.Frame(self.chat_window)
-        input_frame.pack(side='bottom',fill='x', padx=40, pady=20)
-       
-        #输入框
-        self.user_input=tk.Entry(input_frame,relief='flat')
-        self.user_input.pack(side='left',fill='x',expand=True)
-        self.user_input.bind("<Return>",lambda event:self.send_message())
+        input_frame.pack(side='bottom',fill='x', padx=20, pady=20)
 
         #发送按钮
-        send_btn=tk.Button(input_frame,text="发送",command=self.send_message)
+        send_btn=tk.Button(input_frame,text="发送",font=("微软雅黑", 10),command=self.send_message)
         send_btn.pack(side='right',padx=5)
 
         #麦克风按钮
@@ -191,9 +193,14 @@ class DesktopPet:
         self.voice_btn.pack(side='right',padx=5)
         self.chat_window.bind("<F3>",self.toggle_voice)
 
+        #输入框
+        self.user_input=tk.Entry(input_frame,relief='flat',font=("微软雅黑", 13))
+        self.user_input.pack(side='left',fill='x',expand=True,ipady=6)
+        self.user_input.bind("<Return>",lambda event:self.send_message())
+
         #聊天记录
-        self.chat_history=tk.Text(self.chat_window,bg='#ffffff',font=("微软雅黑"),relief='flat')
-        self.chat_history.pack(side='top',padx=40,pady=30,fill='both',expand=True)
+        self.chat_history=tk.Text(self.chat_window,bg='#ffffff',font=("微软雅黑",12),relief='flat')
+        self.chat_history.pack(side='top',padx=20,pady=20,fill='both',expand=True)
     
     #发送信息
     def send_message(self):
@@ -338,6 +345,18 @@ class DesktopPet:
                             "required":["file_path"]
                         }
                     }
+                },
+                #工具6：微信自动收款
+                {
+                    "type":"function",
+                    "function":{
+                        "name":"collect_wechat_money",
+                        "description":"主人让你帮忙收钱、看微信红包、领转账时调用此工具。此工具会自动操作微信，识别并收取所有未领取的转账。",
+                        "parameters": {
+                            "type": "object",
+                            "properties": {}, # 收钱不需要参数，直接干就完了
+                        }
+                    }
                 }
             ]
             
@@ -421,7 +440,15 @@ class DesktopPet:
                                 run_result=run_python_script(file_path)
                                 self.memory.append({"role":"tool","tool_call_id":tool_call.id,"name":func_name,"content":run_result})
                                 print("🧠 小八拿到运行结果，准备汇报...")
-
+                            
+                            #tool6:微信自动收款
+                            elif func_name=="collect_wechat_money":
+                                print("💰 小八收到搞钱指令！正在前往案发现场...")
+                                self.root.after(0, self.show_reply, "小八收到！这就去帮主人看看有没有小钱钱！(｡･ω･｡)")
+                                navigate_to_transfer_chat()
+                                money_result = auto_collect_money()
+                                self.memory.append({"role": "tool", "tool_call_id": tool_call.id, "name": func_name, "content": money_result})
+                                print(f"🧠 小八收钱完毕：{money_result}")
                         continue # 一轮工具选用并执行完毕，跳回 while 开始新一轮循环
                         
                     else:
@@ -528,6 +555,7 @@ class DesktopPet:
             while True:
                 fmt=f'gif -index {len(frames)}'
                 frame=tk.PhotoImage(file=file_path,format=fmt)
+                frame=frame.zoom(3,3).subsample(2,2)
                 frames.append(frame)
         except tk.TclError:
             pass
@@ -539,7 +567,7 @@ class DesktopPet:
         """
         开机启动，读取昨天记忆
         """
-        memory_path="memory.json"#记忆文件路径
+        memory_path="config/memory.json"#记忆文件路径
         try:
             if os.path.exists(memory_path):
                 with open(memory_path,'r',encoding='utf-8') as f:#读取记忆文件
@@ -556,7 +584,7 @@ class DesktopPet:
     #更新记忆
     def save_memory(self):
         """运行ing，将最新记忆刻入本地大脑"""
-        memory_path="memory.json"
+        memory_path="config/memory.json"
         try:
             if len(self.memory)>21:
                 self.memory=[self.memory[0]]+self.memory[-20:]
@@ -579,7 +607,7 @@ class DesktopPet:
 
     #小八视觉
     def vision_loop(self):
-        xml_name='haarcascade_frontalface_default.xml'
+        xml_name='model/haarcascade_frontalface_default.xml'
         if not os.path.exists(xml_name):
             original_path=cv2.data.haarcascades+xml_name
             shutil.copy(original_path,xml_name)
@@ -640,7 +668,7 @@ class DesktopPet:
 
             if self.audio_data:
                 audio_np=np.concatenate(self.audio_data,axis=0)
-                self.wav_path="temp_record.wav"
+                self.wav_path="recordings/temp_record.wav"
                 wav.write(self.wav_path,16000,audio_np)
                 print(f"💾 完美！录音已成功保存为：{self.wav_path}")
                 threading.Thread(target=self.recognize_audio,daemon=True).start()
@@ -696,7 +724,7 @@ class DesktopPet:
                 input=text,
                 response_format="wav"
             )
-            wav_path=os.path.abspath("reply.wav")
+            wav_path=os.path.abspath("recordings/reply.wav")
             response.write_to_file(wav_path)
             mixer.music.load(wav_path)
             mixer.music.play()
