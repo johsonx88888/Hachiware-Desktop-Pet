@@ -3,7 +3,11 @@ import subprocess
 import sys
 import json
 import chromadb
+import uuid
+import datetime
 from openai import OpenAI
+
+#1、读取文件
 def read_local_file(file_path):
     """
     读取指定路径的本地文本文件内容。
@@ -20,7 +24,8 @@ def read_local_file(file_path):
             return "找不到这个文件，请确认路径是否正确。"
     except Exception as e:
         return f"读取出错:{str(e)}" 
-    
+
+#2、跑本地cmd命令
 def run_cmd_command(command):
     """
     让小八终端执行自动化脚本
@@ -52,7 +57,8 @@ def run_cmd_command(command):
         return f"⏱️ 命令执行超时 (超过15秒)！已强制中断。"
     except Exception as e:
         return f"❌ 系统级异常: {str(e)}"
-#写文件权限函数
+    
+#3、改写文件
 def write_local_file(file_path,content):
     """
     在目录下创建或修改，覆盖文件。
@@ -68,7 +74,7 @@ def write_local_file(file_path,content):
     except Exception as e:
         return f"❌ 写文件失败: {str(e)}"
     
-#运行脚本
+#4、运行脚本
 def run_python_script(file_path):
     """
     运行指定python脚本并返回终端输出：（与exe和开发环境自适应）
@@ -107,7 +113,7 @@ def run_python_script(file_path):
     except Exception as e:              # 🚨 加上通用异常兜底，防止未知错误导致整个工具链卡死
         return f"❌ 系统级异常: {str(e)}"
     
-#RAG本地检索
+#5、RAG本地检索
 def search_knowledge_base(query:str):
     """在本地ChromaDB检索相关信息"""
     print(f"\n🔍 小八正在翻阅记忆库，寻找关于【{query}】的线索...")
@@ -151,3 +157,44 @@ def search_knowledge_base(query:str):
 
     print("✅ 记忆检索完成，已把绝密资料递交给小八的大脑！\n")    
     return retrieved_text
+
+#6、实时记忆
+def add_to_knowledge_base(text_to_memorize:str):
+    """将重要信息实时写入小八的长期向量记忆库"""
+    print(f"\n🧠 小八正在将重要情报刻入DNA：【{text_to_memorize}】...")
+    base_dir=os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    db_path=os.path.join(base_dir,"chroma_db_storage")
+    config_file=os.path.join(base_dir,"config","api_config.json")
+
+    if not os.path.exists(db_path):
+        return "❌ 记忆库还未初始化，请先运行 build_rag_db.py 创建底层数据库。"
+    #1、连接向量库
+    try:
+        chroma_client=chromadb.PersistentClient(path=db_path)
+        collection=chroma_client.get_collection(name="hachiware_brain")
+    except Exception as e:
+        return f"❌ 记忆存储失败，无法打开脑库：{str(e)}"
+    #2、读取API并调用BAAI模型进行文本向量化
+    try:
+        with open(config_file,'r',encoding='utf-8') as f:
+            api_key=json.load(f).get("SILICONFLOW_API_KEY","")
+        client=OpenAI(api_key=api_key,base_url="https://api.siliconflow.cn/v1")
+        response=client.embeddings.create(input=text_to_memorize,model="BAAI/bge-m3")
+        vector=response.data[0].embedding
+    except Exception as e:
+        return f"❌ 记忆向量化失败：{str(e)}"
+    #3、写入ChromaDB
+    try:
+        memory_id=f"chat_memory_{uuid.uuid4().hex[:8]}"
+        current_time=datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        collection.add(
+            ids=[memory_id],
+            embeddings=[vector],
+            documents=[text_to_memorize],
+            metadatas=[{"source":"chat_realtime","time":current_time}]
+        )
+        return "✅ 记忆已永久保存至小八的向量库中！"
+    except Exception as e:
+        return f"❌写入向量库失败：{e}"
+
+

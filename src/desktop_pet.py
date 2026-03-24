@@ -20,7 +20,7 @@ from pygame import mixer
 from PIL import Image,ImageTk,ImageGrab
 from io import BytesIO   #在内存中开辟空间存储图片
 from openai import OpenAI
-from tools_logic import read_local_file, run_cmd_command, write_local_file, run_python_script,search_knowledge_base
+from tools_logic import read_local_file, run_cmd_command, write_local_file, run_python_script,search_knowledge_base,add_to_knowledge_base
 from wechat_skill import auto_collect_money, navigate_to_transfer_chat
 
 if sys.stdout is not None:
@@ -375,6 +375,24 @@ class DesktopPet:
                             "required":["query"]
                         }
                     }
+                },
+                #工具8：实时记忆
+                {
+                    "type": "function",
+                    "function": {
+                        "name": "add_to_knowledge_base",
+                        "description": "当主人明确要求你'记住'某件事，或者在日常聊天中透露了关于主人的重要个人信息、喜好、未来计划时，必须调用此工具。它能将信息永久存入向量记忆库。",
+                        "parameters": {
+                            "type": "object",
+                            "properties": {
+                                "text_to_memorize": {
+                                    "type": "string",
+                                    "description": "需要永久记住的具体信息内容，请以第三人称整理成完整、清晰的陈述句。例如：'主人喜欢玩Eternum游戏'或'主人计划在今年9-10月份的秋招中找高薪工作'。"
+                                }
+                            },
+                            "required": ["text_to_memorize"]
+                        }
+                    }
                 }
             ]
             
@@ -505,7 +523,19 @@ class DesktopPet:
                                 print(f"🧠 小八正在潜入深层记忆海，搜索关键词：【{query}】...")
                                 rag_result=search_knowledge_base(query)
                                 self.memory.append({"role":"tool","tool_call_id":tool_call.id,"content":str(rag_result)})
-
+                            
+                            #tool8:实时写入记忆
+                            elif func_name=="add_to_knowledge_base":
+                                text_to_memorize=args.get("text_to_memorize")
+                                print(f"🧠 小八准备开启写轮眼，永久记录: {text_to_memorize}")
+                                result_msg=add_to_knowledge_base(text_to_memorize)
+                                self.memory.append({
+                                    "role":"tool",
+                                    "tool_call_id":tool_call.id,
+                                    "content": str(result_msg)
+                                })
+                                print(f"🧠 记忆录入完毕：{result_msg}")
+                                
                             else:
                                 print(f"⚠️ 云端大脑试图使用不存在的工具：{func_name}！已强制拦截！")
                                 error_msg = f"Error: 根本没有 '{func_name}' 这个工具。请使用正确的工具（如 run_cmd_command）去执行复制或删除操作。"

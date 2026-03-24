@@ -98,7 +98,7 @@ class KnowledgeBuilder:
                 )
                 print(f"✅ 【{file_name}】 已成功刻入小八的深层记忆库！")
 
-#rag检索入口：
+#   
 if __name__=="__main__":
     builder=KnowledgeBuilder()
     builder.build_from_folder()
