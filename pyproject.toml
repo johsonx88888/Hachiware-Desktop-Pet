@@ -9,6 +9,8 @@ authors=[
 ]
 keywords=["AI","Agent","DesktopPet","deepseek","OpenCV"]
 dependencies = [
+    "chromadb>=1.5.5",
+    "langchain-text-splitters>=1.1.1",
     "numpy>=2.4.3",
     "openai>=2.26.0",
     "opencv-python>=4.13.0.92",
@@ -21,4 +23,5 @@ dependencies = [
     "requests>=2.32.5",
     "scipy>=1.17.1",
     "sounddevice>=0.5.5",
+    "tiktoken>=0.12.0",
 ]

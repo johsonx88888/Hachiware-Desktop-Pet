@@ -20,7 +20,7 @@ from pygame import mixer
 from PIL import Image,ImageTk,ImageGrab
 from io import BytesIO   #在内存中开辟空间存储图片
 from openai import OpenAI
-from tools_logic import read_local_file, run_cmd_command, write_local_file, run_python_script
+from tools_logic import read_local_file, run_cmd_command, write_local_file, run_python_script,search_knowledge_base
 from wechat_skill import auto_collect_money, navigate_to_transfer_chat
 
 if sys.stdout is not None:
@@ -357,6 +357,24 @@ class DesktopPet:
                             "properties": {}, # 收钱不需要参数，直接干就完了
                         }
                     }
+                },
+                #工具7：RAG向量检索记忆
+                {
+                    "type":"function",
+                    "function":{
+                        "name":"search_knowledge_base",
+                        "description": "当主人询问你的设定、主人的个人信息、过去的课设经历、或者你常识不知道的本地私有知识时，必须调用此工具。",
+                        "parameters": {
+                            "type":"object",
+                            "properties":{
+                                "query":{
+                                    "type":"string",
+                                    "description":"检索关键词，如'主人是谁'、'贪吃蛇项目要求'等"
+                                }
+                            },
+                            "required":["query"]
+                        }
+                    }
                 }
             ]
             
@@ -392,12 +410,43 @@ class DesktopPet:
                     #获取ai决策
                     response_msg = response.choices[0].message
                     
-                    #判断是否需要调用工具
+                    # 判断是否需要调用工具
                     if response_msg.tool_calls:
-                        assistant_msg_dict=response_msg.model_dump(exclude_none=True)
-                        self.memory.append(assistant_msg_dict)
+                        clean_tool_calls = []
+                        unique_tools = []
+                        seen_sigs = set()
+
+                        # 1. 遍历并清洗工具 (这个 for 循环负责去重)
+                        for tc in response_msg.tool_calls:
+                            # 把id给大模型
+                            tc_id = tc.id if tc.id else f"call_{len(seen_sigs)}"
+                            # 准备上锁
+                            sig = f"{tc.function.name}_{tc.function.arguments}"
+                            if sig not in seen_sigs:
+                                seen_sigs.add(sig)
+                                tc.id = tc_id
+                                unique_tools.append(tc)
+                                clean_tool_calls.append({
+                                    "id": tc.id,
+                                    "type": "function",
+                                    "function": {
+                                        "name": tc.function.name,
+                                        "arguments": tc.function.arguments
+                                    }
+                                })
+                            else:
+                                print(f"🛡️ 拦截到大模型复读机抽风，跳过重复动作: {tc.function.name}")
+
+                        assitant_msg = {
+                            "role": "assistant",
+                            "content": response_msg.content,
+                            "tool_calls": clean_tool_calls
+                        }
+                            
+                        # 不管有没有 content，都要把记忆存进去！
+                        self.memory.append(assitant_msg)
                         
-                        for tool_call in response_msg.tool_calls:
+                        for tool_call in unique_tools:
                             func_name = tool_call.function.name
                             args = json.loads(tool_call.function.arguments)
 
@@ -406,14 +455,14 @@ class DesktopPet:
                                 app_name = args.get("app_name")
                                 result_msg = self.open_app_from_desktop(app_name)
                                 self.root.after(0, self.show_reply, result_msg)
-                                self.memory.append({"role": "tool", "tool_call_id": tool_call.id, "name": func_name, "content": result_msg})
+                                self.memory.append({"role": "tool", "tool_call_id": tool_call.id, "content": str(result_msg)})
 
                             #tool2:读取电脑文件
                             elif func_name == "read_local_file":
                                 file_path = args.get("file_path")
                                 print(f"📖 小八正在翻阅文件：{file_path}...")
                                 file_content = read_local_file(file_path)
-                                self.memory.append({"role": "tool", "tool_call_id": tool_call.id, "name": func_name, "content": file_content})
+                                self.memory.append({"role": "tool", "tool_call_id": tool_call.id,"content": str(file_content)})
                                 print("🧠 小八已拿到文件内容，正在总结...")
                             
                             #tool3:处理cmd逻辑
@@ -421,7 +470,7 @@ class DesktopPet:
                                 cmd_to_run = args.get("command")
                                 print(f"⌨️ 小八正在疯狂敲击键盘执行: {cmd_to_run}")
                                 cmd_result = run_cmd_command(cmd_to_run)
-                                self.memory.append({"role": "tool", "tool_call_id": tool_call.id, "name": func_name, "content": cmd_result})
+                                self.memory.append({"role": "tool", "tool_call_id": tool_call.id,"content": str(cmd_result)})
                                 print("🧠 小八已拿到终端输出，正在进行二次总结...")
 
                             #tool4:写文件
@@ -430,7 +479,7 @@ class DesktopPet:
                                 content=args.get("content")
                                 print(f"✍️ 小八正在奋笔疾书，写代码到：{file_path}...")
                                 write_result=write_local_file(file_path,content)
-                                self.memory.append({"role":"tool","tool_call_id":tool_call.id,"name":func_name,"content":write_result})
+                                self.memory.append({"role":"tool","tool_call_id":tool_call.id,"content":str(write_result)})
                                 print(f"🧠 小八写入完毕：{write_result}")
 
                             #tool5:跑脚本检查
@@ -438,7 +487,7 @@ class DesktopPet:
                                 file_path=args.get("file_path")
                                 print(f"🚀 小八正在启动脚本验证：{file_path}")
                                 run_result=run_python_script(file_path)
-                                self.memory.append({"role":"tool","tool_call_id":tool_call.id,"name":func_name,"content":run_result})
+                                self.memory.append({"role":"tool","tool_call_id":tool_call.id,"content":str(run_result)})
                                 print("🧠 小八拿到运行结果，准备汇报...")
                             
                             #tool6:微信自动收款
@@ -447,17 +496,28 @@ class DesktopPet:
                                 self.root.after(0, self.show_reply, "小八收到！这就去帮主人看看有没有小钱钱！(｡･ω･｡)")
                                 navigate_to_transfer_chat()
                                 money_result = auto_collect_money()
-                                self.memory.append({"role": "tool", "tool_call_id": tool_call.id, "name": func_name, "content": money_result})
+                                self.memory.append({"role": "tool", "tool_call_id": tool_call.id,"content": str(money_result)})
                                 print(f"🧠 小八收钱完毕：{money_result}")
+                            
+                            #tool7:RAG记忆检索
+                            elif func_name=="search_knowledge_base":
+                                query=args.get("query")
+                                print(f"🧠 小八正在潜入深层记忆海，搜索关键词：【{query}】...")
+                                rag_result=search_knowledge_base(query)
+                                self.memory.append({"role":"tool","tool_call_id":tool_call.id,"content":str(rag_result)})
+
+                            else:
+                                print(f"⚠️ 云端大脑试图使用不存在的工具：{func_name}！已强制拦截！")
+                                error_msg = f"Error: 根本没有 '{func_name}' 这个工具。请使用正确的工具（如 run_cmd_command）去执行复制或删除操作。"
+                                self.memory.append({"role": "tool", "tool_call_id": tool_call.id, "content": error_msg})
                         continue # 一轮工具选用并执行完毕，跳回 while 开始新一轮循环
-                        
                     else:
-                        #若出错
+                        #若不调工具，直接回复（闲聊或总结）
                         reply = response_msg.content
                         if not reply:
                             reply = "呜...小八走神了，没听清你在说什么(；ω；)"
                        
-                        #一般聊天
+                        #一般聊天中暴力提取（兼容老旧逻辑）
                         if "open_app_from_desktop" in reply and "{" in reply:
                             try:
                                 start_idx = reply.find('{')
@@ -472,12 +532,16 @@ class DesktopPet:
                                 print(f"暴力提取失败:{parse_error}")
                                 pass
 
-                        self.memory.append({"role": "assistant", "content": reply})
+                        # 把官方完整的 message 存进记忆
+                        self.memory.append({
+                        "role": "assistant",
+                        "content": reply or ""
+                      })
                         self.save_memory()
                         self.root.after(0, self.show_reply, reply)
                         self.speak_text(reply)
-                        break # 任务彻底完工，跳出 while 循环
-                        
+                        break
+
                 # 🚨 兜底机制：跟 while 垂直对齐
                 if current_loop >= max_loop:
                     print("⚠️ 已达到最大工具调用次数，停止循环以防死锁。")

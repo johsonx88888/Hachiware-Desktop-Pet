@@ -1,6 +1,9 @@
 import os 
 import subprocess
 import sys
+import json
+import chromadb
+from openai import OpenAI
 def read_local_file(file_path):
     """
     读取指定路径的本地文本文件内容。
@@ -104,3 +107,47 @@ def run_python_script(file_path):
     except Exception as e:              # 🚨 加上通用异常兜底，防止未知错误导致整个工具链卡死
         return f"❌ 系统级异常: {str(e)}"
     
+#RAG本地检索
+def search_knowledge_base(query:str):
+    """在本地ChromaDB检索相关信息"""
+    print(f"\n🔍 小八正在翻阅记忆库，寻找关于【{query}】的线索...")
+    base_dir=os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    db_path=os.path.join(base_dir,"chroma_db_storage")
+    config_file=os.path.join(base_dir,"config","api_config.json")
+    if not os.path.exists(db_path):
+        return "本地知识库不存在，请先运行入库脚本 build_rag_db.py。"
+    try:   #倘若向量记忆库存在
+        chroma_client=chromadb.PersistentClient(path=db_path)
+        collection=chroma_client.get_collection(name="hachiware_brain")
+    except Exception as e:
+        return f"连接知识库失败：{str(e)}"
+    #读取api接入大模型
+    try:
+        with open(config_file,'r',encoding='utf-8') as f:
+            api_key=json.load(f).get("SILICONFLOW_API_KEY","")
+    except Exception:
+        return "读取API密钥失败，无法将问题转化为向量检索"
+    
+    #初始化大模型客户端
+    client=OpenAI(api_key=api_key,base_url="https://api.siliconflow.cn/v1")
+
+    #向量化检索
+    try:
+        response=client.embeddings.create(input=query,model="BAAI/bge-m3")
+        query_vector=response.data[0].embedding
+        #关键参数
+        results=collection.query(query_embeddings=[query_vector],n_results=3) 
+    except Exception as e:
+        return f"检索失败：{e}"
+    
+    if not results['documents'] or not results['documents'][0]:
+        return "❌抱歉，记忆库中没有找到与此相关的信息。"
+    
+    #格式化检索格式
+    retrieved_text="【以下是检索到的本地私有记忆，请根据这些信息回答用户】：\n"
+    for i,doc in enumerate(results['documents'][0]):
+        source=results['metadatas'][0][i].get('source','未知出处')
+        retrieved_text+=f"---参考片段{i+1} (来源：{source}) ---\n{doc}\n"
+
+    print("✅ 记忆检索完成，已把绝密资料递交给小八的大脑！\n")    
+    return retrieved_text
